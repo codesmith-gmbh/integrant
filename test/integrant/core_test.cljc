@@ -190,12 +190,16 @@
     (is (= (ig/find-derived-1 {::a "x" ::p "y"} ::pp)
            [::p "y"])))
 
+  (testing "exact key"
+    (is (= (ig/find-derived-1 {::a "x" ::p "y", ::pp "z"} ::pp)
+           [::pp "z"])))
+
   (testing "ambigous key"
     (is (thrown-with-msg?
          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-         (re-pattern (str "Ambiguous key: " ::pp "\\. "
+         (re-pattern (str "Ambiguous key: " ::ppp "\\. "
                           "Found multiple candidates: " ::p ", " ::pp))
-         (ig/find-derived-1 {::a "x" ::p "y", ::pp "z"} ::pp))))
+         (ig/find-derived-1 {::a "x" ::p "y", ::pp "z"} ::ppp))))
 
   (testing "composite key"
     (is (= (ig/find-derived-1 {::a "x" [::b ::x] "y"} ::x)
@@ -207,6 +211,10 @@
 
   (testing "derived key"
     (is (= (ig/find-derived {::a "x" ::p "y" ::pp "z"} ::pp)
+           [[::p "y"] [::pp "z"]])))
+
+  (testing "exact key"
+    (is (= (ig/find-derived {::a "x" ::p "y", ::pp "z"} ::pp)
            [[::p "y"] [::pp "z"]])))
 
   (testing "ambigous key"
@@ -251,6 +259,22 @@
       (is (= m {::p [[1]], ::a [1]}))
       (is (= @log [[:init ::a 1]
                    [:init ::p [1]]]))))
+
+  (testing "with exact key"
+    (reset! log [])
+    (let [m (ig/init {::p "y", ::pp "z", ::b (ig/ref ::pp)})]
+      (is (= m {::p ["y"], ::pp ["z"], ::b [["z"]]}))
+      (is (= @log [[:init ::p "y"]
+                   [:init ::pp "z"]
+                   [:init ::b ["z"]]]))))
+
+  (testing "with ambiguous key"
+    (reset! log [])
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+          (re-pattern (str "Ambiguous key: " ::ppp "\\. "
+                           "Found multiple candidates: " ::p ", " ::pp))
+          (ig/init {::p "y", ::pp "z", ::b (ig/ref ::ppp)}))))
 
   (testing "with composite keys"
     (reset! log [])

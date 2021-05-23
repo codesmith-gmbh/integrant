@@ -60,11 +60,31 @@
   [m k]
   (seq (filter #(or (= (key %) k) (derived-from? (key %) k)) m)))
 
+(defn- ambiguous-key-exception [config key matching-keys]
+  (ex-info (str "Ambiguous key: " key ". Found multiple candidates: "
+                (str/join ", " matching-keys))
+           {:reason        ::ambiguous-key
+            :config        config
+            :key           key
+            :matching-keys matching-keys}))
+
+(defn find-derived-1
+  "Return the map entry in a map, m, where the key is derived from the keyword,
+  k. If there are no matching keys, nil is returned. If there is more than one
+  matching key, we have two case: if an exact match is found, its entry is returned;
+  otherwise, an ambiguous key exception is raised."
+  [m k]
+  (let [kvs (find-derived m k)]
+    (if (next kvs)
+      (or (some #(and (= k (first %)) %) kvs)
+          (throw (ambiguous-key-exception m k (map key kvs))))
+      (first kvs))))
+
 (defrecord Ref [key]
   RefLike
   (ref-key [_] key)
   (ref-resolve [_ config resolvef]
-    (let [[k v] (first (find-derived config key))]
+    (let [[k v] (find-derived-1 config key)]
       (resolvef k v))))
 
 (defrecord RefSet [key]
@@ -105,24 +125,6 @@
 
 (defn- depth-search [pred? coll]
   (filter pred? (tree-seq coll? seq coll)))
-
-(defn- ambiguous-key-exception [config key matching-keys]
-  (ex-info (str "Ambiguous key: " key ". Found multiple candidates: "
-                (str/join ", " matching-keys))
-           {:reason ::ambiguous-key
-            :config config
-            :key    key
-            :matching-keys matching-keys}))
-
-(defn find-derived-1
-  "Return the map entry in a map, m, where the key is derived from the keyword,
-  k. If there are no matching keys, nil is returned. If there is more than one
-  matching key, an ambiguous key exception is raised."
-  [m k]
-  (let [kvs (find-derived m k)]
-    (when (next kvs)
-      (throw (ambiguous-key-exception m k (map key kvs))))
-    (first kvs)))
 
 (defn- find-derived-refs [config v include-refsets?]
   (->> (depth-search (if include-refsets? reflike? ref?) v)
@@ -214,10 +216,10 @@
             :config config
             :missing-refs refs}))
 
-(defn- ambiguous-refs [config]
+(defn- check-for-ambiguous-refs! [config]
   (->> (depth-search ref? config)
        (map ref-key)
-       (filter #(next (find-derived config %)))))
+       (map #(find-derived-1 config %))))
 
 (defn- missing-refs [config]
   (->> (depth-search ref? config)
@@ -328,8 +330,7 @@
          relevant-config (select-keys config relevant-keys)]
      (when-let [invalid-key (first (invalid-composite-keys config))]
        (throw (invalid-composite-key-exception config invalid-key)))
-     (when-let [ref (first (ambiguous-refs relevant-config))]
-       (throw (ambiguous-key-exception config ref (map key (find-derived config ref)))))
+     (check-for-ambiguous-refs! relevant-config)
      (when-let [refs (seq (missing-refs relevant-config))]
        (throw (missing-refs-exception config refs)))
      (reduce (partial build-key f assertf resolvef)
